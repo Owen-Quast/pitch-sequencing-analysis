@@ -83,29 +83,32 @@ pitch_data <- pitch_data %>%
 # Fastball Whiff Rate by Previous Pitch
 # ==========================================
 
-min_count <- 100
-
 fastball_seq <- pitch_data %>%
-  filter(pitch_type == "FF") %>%
+  filter(next_pitch == "FF") %>%
   group_by(prev_pitch) %>%
   summarize(
-    whiff_rate = mean(whiff),
+    whiff_rate = mean(whiff, na.rm = TRUE),
     count = n(),
     .groups = "drop"
   ) %>%
-  filter(count >= min_count) %>%
-  arrange(desc(whiff_rate))
+  filter(count >= 100)
+
+# Compute baseline fastball whiff rate
+ff_baseline <- pitch_data %>%
+  filter(next_pitch == "FF") %>%
+  summarize(avg_whiff = mean(whiff, na.rm = TRUE)) %>%
+  pull(avg_whiff)
 
 # Plot
-ggplot(fastball_seq,
-       aes(x = prev_pitch, y = whiff_rate)) +
-  geom_col() +
-  geom_text(aes(label=count), vjust=-0.4) +
+ggplot(fastball_seq, aes(x = reorder(prev_pitch, whiff_rate), y = whiff_rate)) +
+  geom_col(fill = "gray40") +
+  geom_text(aes(label = count), vjust = -0.3, size = 3.5) +
+  geom_hline(yintercept = ff_baseline, linetype = "dashed", color = "red") +
   labs(
-    title="Fastball Whiff Rate by Previous Pitch",
-    subtitle=paste0("Filtered to n ≥ ",min_count),
-    x="Previous Pitch",
-    y="Whiff Rate"
+    title = "Fastball Whiff Rate by Previous Pitch",
+    subtitle = paste("Red dashed line = league average fastball whiff rate (", round(ff_baseline,3), ")", sep=""),
+    x = "Previous Pitch",
+    y = "Whiff Rate"
   ) +
   theme_minimal()
 
