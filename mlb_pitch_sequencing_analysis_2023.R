@@ -74,7 +74,7 @@ pitch_data <- pitch_data %>%
   ) %>%
   ungroup()
 
-# Remove rows without sequence context
+# Remove first and last pitches of each at-bat — no full sequence context available
 pitch_data <- pitch_data %>%
   filter(!is.na(prev_pitch), !is.na(next_pitch))
 
@@ -149,26 +149,28 @@ ggplot(sequence_summary,
 # Setup Value (Whiff Above Baseline)
 # ==========================================
 
-# Baseline whiff rate for each pitch type
+# Baseline whiff rate for each pitch type (ignoring sequence context)
 baseline_next <- pitch_data %>%
-  group_by(next_pitch = pitch_type) %>%
+  group_by(pitch_type) %>%
   summarize(
     baseline_whiff = mean(whiff),
     .groups="drop"
   )
 
-# Calculate setup value
+# Calculate setup value: whiff rate for a given sequence vs. that pitch's baseline
 sequence_setup <- pitch_data %>%
-  group_by(prev_pitch, next_pitch = pitch_type) %>%
+  group_by(prev_pitch, pitch_type) %>%
   summarize(
     whiff_rate = mean(whiff),
     count = n(),
     .groups="drop"
   ) %>%
-  left_join(baseline_next, by="next_pitch") %>%
+  left_join(baseline_next, by="pitch_type") %>%
+  rename(next_pitch = pitch_type) %>%
   mutate(
     setup_value = whiff_rate - baseline_whiff
   )
+
 
 min_cell <- 150
 
@@ -241,8 +243,6 @@ pitch_order <- c(
   "CU",
   "CH"
 )
-# If your graph uses codes (FF, SI...), use this instead:
-# pitch_order <- c("FF","SI","FC","SL","ST","CU","CH")
 
 # Apply order (keeps circle layout in this order)
 edges_plot <- edges_plot %>%
