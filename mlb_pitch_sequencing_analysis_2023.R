@@ -149,12 +149,13 @@ ggplot(sequence_summary,
 # Setup Value (Whiff Above Baseline)
 # ==========================================
 
-# Baseline whiff rate for each pitch type (ignoring sequence context)
+# Baseline whiff rate per pitch type — computed from mid-sequence pitches only
+# (consistent with the sequence whiff rates, which also use mid-sequence pitches)
 baseline_next <- pitch_data %>%
   group_by(pitch_type) %>%
   summarize(
     baseline_whiff = mean(whiff),
-    .groups="drop"
+    .groups = "drop"
   )
 
 # Calculate setup value: whiff rate for a given sequence vs. that pitch's baseline
@@ -188,7 +189,8 @@ ggplot(sequence_setup_filtered,
     low="red",
     mid="white",
     high="blue",
-    midpoint=0
+    midpoint=0,
+    limits=c(-0.04, 0.08)
   ) +
   labs(
     title="Pitch Sequencing Setup Value (Whiff Above Baseline)",
@@ -227,7 +229,6 @@ min_edge_count <- 150   # reliability threshold
 min_effect     <- 0.01  # 1% whiff above/below baseline
 
 edges_plot <- edges %>%
-  filter(count >= min_edge_count) %>%
   filter(abs(setup_value) >= min_effect)
 
 message("Edges in network: ", nrow(edges_plot))
