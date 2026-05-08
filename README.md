@@ -12,7 +12,7 @@ Key Findings
 
 Setup pitch has a meaningful impact on fastball (FF) whiff rate. League average FF whiff rate was 11.1%, but this varied from ~7.5% when preceded by a sweeper (ST) or slider (SL) up to ~17.5% when preceded by a cutter (FC) — a swing of over 10 percentage points depending purely on sequence context.
 SI → CH is the strongest sequencing edge in the dataset. A sinker followed by a changeup produced the highest positive Setup Value of any sequence meeting the minimum sample threshold (~0.07, n=264), showing the changeup benefits significantly from sinker velocity contrast.
-FC → FF is the most damaging sequence a pitcher can use. With n=231, a cutter into a four-seam fastball showed the largest negative Setup Value in the heatmap — suggesting that the similar velocity and movement profile between cutters and fastballs telegraphs the pitch and actively suppresses whiffs.
+FC → FF is the most damaging sequence a pitcher can use. A cutter into a four-seam fastball showed the largest negative Setup Value in the heatmap — the similar velocity and movement profile between the two pitches telegraphs the intent and actively suppresses whiffs
 The sequencing network is dominated by a single story. After filtering for effect size and sample reliability, the SI → CH edge stands alone as the most impactful sequence — thick, high-Setup Value, and clearly separated from the field. Most other high-volume sequences (particularly those leading into FF) trended negative.
 
 
