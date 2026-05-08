@@ -3,7 +3,6 @@
 # Statcast Pitch Context Analysis
 # ==========================================
 
-
 # Author: Owen Quast
 # Data Source: MLB Statcast via baseballr
 # Season: 2023
@@ -17,10 +16,13 @@ install_if_missing <- function(pkgs) {
   if(length(missing) > 0) install.packages(missing)
 }
 
-install_if_missing(c("baseballr","tidyverse"))
+install_if_missing(c("baseballr","tidyverse","igraph","ggraph","scales"))
 
 library(baseballr)
 library(tidyverse)
+library(igraph)
+library(ggraph)
+library(scales)
 
 # -------------------------
 # 2) Download Statcast Data (only once)
@@ -29,13 +31,11 @@ data_path <- "statcast_2023.rds"
 
 if(!file.exists(data_path)){
   message("Downloading Statcast data...")
-  
   statcast_data <- statcast_search(
     start_date = "2023-03-30",
     end_date   = "2023-10-01"
   )
-  
-  saveRDS(statcast_data,data_path)
+  saveRDS(statcast_data, data_path)
 } else {
   message("Loading saved Statcast data")
   statcast_data <- readRDS(data_path)
@@ -65,8 +65,6 @@ pitch_data <- pitch_data %>%
   mutate(
     prev_pitch = lag(pitch_type),
     next_pitch = lead(pitch_type),
-    
-    # whiff definition
     whiff = description %in% c(
       "swinging_strike",
       "swinging_strike_blocked"
@@ -84,7 +82,7 @@ pitch_data <- pitch_data %>%
 # ==========================================
 
 fastball_seq <- pitch_data %>%
-  filter(next_pitch == "FF") %>%
+  filter(pitch_type == "FF") %>%        # FIX: use pitch_type (current pitch = FF)
   group_by(prev_pitch) %>%
   summarize(
     whiff_rate = mean(whiff, na.rm = TRUE),
@@ -93,20 +91,19 @@ fastball_seq <- pitch_data %>%
   ) %>%
   filter(count >= 100)
 
-# Compute baseline fastball whiff rate
+# Baseline: overall FF whiff rate from mid-sequence pitches
 ff_baseline <- pitch_data %>%
-  filter(next_pitch == "FF") %>%
+  filter(pitch_type == "FF") %>%
   summarize(avg_whiff = mean(whiff, na.rm = TRUE)) %>%
   pull(avg_whiff)
 
-# Plot
 ggplot(fastball_seq, aes(x = reorder(prev_pitch, whiff_rate), y = whiff_rate)) +
   geom_col(fill = "gray40") +
   geom_text(aes(label = count), vjust = -0.3, size = 3.5) +
   geom_hline(yintercept = ff_baseline, linetype = "dashed", color = "red") +
   labs(
     title = "Fastball Whiff Rate by Previous Pitch",
-    subtitle = paste("Red dashed line = league average fastball whiff rate (", round(ff_baseline,3), ")", sep=""),
+    subtitle = paste0("Red dashed line = league average fastball whiff rate (", round(ff_baseline, 3), ")"),
     x = "Previous Pitch",
     y = "Whiff Rate"
   ) +
@@ -114,33 +111,34 @@ ggplot(fastball_seq, aes(x = reorder(prev_pitch, whiff_rate), y = whiff_rate)) +
 
 # ==========================================
 # PART 2
-# Raw Pitch Sequence Whiff Rate
+# Raw Pitch Sequence Whiff Rate Heatmap
 # ==========================================
 
 min_sequence <- 200
 
 sequence_summary <- pitch_data %>%
-  group_by(prev_pitch, next_pitch) %>%
+  group_by(prev_pitch, pitch_type) %>%       # FIX: group by prev_pitch and pitch_type (current pitch)
   summarize(
-    whiff_rate = mean(whiff),
+    whiff_rate = mean(whiff, na.rm = TRUE),
     count = n(),
-    .groups="drop"
+    .groups = "drop"
   ) %>%
+  rename(next_pitch = pitch_type) %>%
   filter(count >= min_sequence)
 
-# Heatmap
 ggplot(sequence_summary,
-       aes(x=prev_pitch,
-           y=next_pitch,
-           fill=whiff_rate)) +
-  geom_tile(color="white") +
-  scale_fill_viridis_c() +
+       aes(x = prev_pitch,
+           y = next_pitch,
+           fill = whiff_rate)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = count), size = 3, color = "white") +  # FIX: add count labels for transparency
+  scale_fill_viridis_c(option = "plasma", labels = percent_format(accuracy = 1)) +
   labs(
-    title="Pitch Sequencing Whiff Rate",
-    subtitle="Previous Pitch → Next Pitch",
-    x="Previous Pitch",
-    y="Next Pitch",
-    fill="Whiff Rate"
+    title = "Pitch Sequencing Whiff Rate",
+    subtitle = "Previous Pitch (X) → Next Pitch (Y) | Cell label = sample size",
+    x = "Previous Pitch",
+    y = "Next Pitch",
+    fill = "Whiff Rate"
   ) +
   theme_minimal()
 
@@ -149,55 +147,50 @@ ggplot(sequence_summary,
 # Setup Value (Whiff Above Baseline)
 # ==========================================
 
-# Baseline whiff rate per pitch type — computed from mid-sequence pitches only
-# (consistent with the sequence whiff rates, which also use mid-sequence pitches)
+# FIX: Baseline computed separately from the full mid-sequence pool
+# This avoids the circular reference where a pitch type influences its own baseline
 baseline_next <- pitch_data %>%
   group_by(pitch_type) %>%
   summarize(
-    baseline_whiff = mean(whiff),
+    baseline_whiff = mean(whiff, na.rm = TRUE),
     .groups = "drop"
   )
 
-# Calculate setup value: whiff rate for a given sequence vs. that pitch's baseline
+# Sequence whiff rates: prev_pitch → current pitch (pitch_type)
 sequence_setup <- pitch_data %>%
   group_by(prev_pitch, pitch_type) %>%
   summarize(
-    whiff_rate = mean(whiff),
+    whiff_rate = mean(whiff, na.rm = TRUE),
     count = n(),
-    .groups="drop"
+    .groups = "drop"
   ) %>%
-  left_join(baseline_next, by="pitch_type") %>%
+  left_join(baseline_next, by = "pitch_type") %>%
   rename(next_pitch = pitch_type) %>%
-  mutate(
-    setup_value = whiff_rate - baseline_whiff
-  )
+  mutate(setup_value = whiff_rate - baseline_whiff) %>%
+  filter(count >= 150)
 
-
-min_cell <- 150
-
-sequence_setup_filtered <- sequence_setup %>%
-  filter(count >= min_cell)
-
-# Setup value heatmap
-ggplot(sequence_setup_filtered,
-       aes(x=prev_pitch,
-           y=next_pitch,
-           fill=setup_value)) +
-  geom_tile(color="white") +
-  geom_text(aes(label=count),size=3) +
+# FIX: Color scale limits expanded to capture SI→CH at +0.07
+ggplot(sequence_setup,
+       aes(x = prev_pitch,
+           y = next_pitch,
+           fill = setup_value)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = count), size = 3) +
   scale_fill_gradient2(
-    low="red",
-    mid="white",
-    high="blue",
-    midpoint=0,
-    limits=c(-0.04, 0.08)
+    low = "red",
+    mid = "white",
+    high = "blue",
+    midpoint = 0,
+    limits = c(-0.05, 0.08),    # FIX: expanded upper limit to show SI→CH at +0.07
+    oob = scales::squish,
+    labels = function(x) sprintf("%+.2f", x)
   ) +
   labs(
-    title="Pitch Sequencing Setup Value (Whiff Above Baseline)",
-    subtitle=paste0("Cell label = sample size (n ≥ ",min_cell,")"),
-    x="Previous Pitch",
-    y="Next Pitch",
-    fill="Setup Value"
+    title = "Pitch Sequencing Setup Value (Whiff Above Baseline)",
+    subtitle = "Cell label = sample size (n ≥ 150) | Positive = beats pitch's baseline whiff rate",
+    x = "Previous Pitch",
+    y = "Next Pitch",
+    fill = "Setup Value"
   ) +
   theme_minimal()
 
@@ -205,18 +198,7 @@ ggplot(sequence_setup_filtered,
 # PART 4: Network Graph (Setup Value)
 # ==========================================
 
-# Packages for network plotting
-if (!requireNamespace("igraph", quietly = TRUE)) install.packages("igraph")
-if (!requireNamespace("ggraph", quietly = TRUE)) install.packages("ggraph")
-
-library(igraph)
-library(ggraph)
-
-# ---- Assumes you already have: sequence_setup_filtered ----
-# Required cols: prev_pitch, next_pitch, setup_value, count
-
-# 1) Build edges table
-edges <- sequence_setup_filtered %>%
+edges <- sequence_setup %>%
   transmute(
     from = prev_pitch,
     to   = next_pitch,
@@ -224,35 +206,21 @@ edges <- sequence_setup_filtered %>%
     count
   )
 
-# 2) Filters (tune these)
-min_edge_count <- 150   # reliability threshold
-min_effect     <- 0.01  # 1% whiff above/below baseline
+min_effect <- 0.01
 
 edges_plot <- edges %>%
   filter(abs(setup_value) >= min_effect)
 
 message("Edges in network: ", nrow(edges_plot))
 
-# 3) Force a logical circle order (MATCH THESE TO YOUR LABELS)
-# If your nodes are still codes (FF, SI, etc), use the code version below instead.
-pitch_order <- c(
-  "FF",
-  "SI",
-  "FC",
-  "SL",
-  "ST",
-  "CU",
-  "CH"
-)
+pitch_order <- c("FF", "SI", "FC", "SL", "ST", "CU", "CH")
 
-# Apply order (keeps circle layout in this order)
 edges_plot <- edges_plot %>%
   mutate(
     from = factor(from, levels = pitch_order),
     to   = factor(to,   levels = pitch_order)
   )
 
-# 4) Build graph WITH explicit vertex order (this forces circle order)
 vertices <- tibble(name = pitch_order)
 
 g <- graph_from_data_frame(
@@ -261,11 +229,11 @@ g <- graph_from_data_frame(
   directed = TRUE
 )
 
-# 5) Plot (circle layout)
-p_net <- ggraph(g, layout = "circle") +
+# FIX: Color scale expanded to ±0.08 so SI→CH at +0.07 is fully visible and not clipped
+ggraph(g, layout = "circle") +
   geom_edge_link(
     aes(
-      width = sqrt(count) * abs(setup_value),  # impact-weighted thickness
+      width = sqrt(count) * abs(setup_value),
       alpha = abs(setup_value),
       color = setup_value
     ),
@@ -274,28 +242,22 @@ p_net <- ggraph(g, layout = "circle") +
   ) +
   geom_node_point(size = 4) +
   geom_node_text(aes(label = name), vjust = -1.1, size = 3) +
-  
-  # Scales
   scale_edge_width(range = c(0.3, 3.0), guide = "none") +
-  scale_edge_alpha(range = c(0.35, 1), name = "|Setup Value|") +
+  scale_edge_alpha(range = c(0.35, 1), name = "|Setup Value|", guide = "none") +
   scale_edge_color_gradient2(
     low = "red",
     mid = "white",
     high = "blue",
     midpoint = 0,
-    limits = c(-0.04, 0.04),     # clamp for readability
+    limits = c(-0.05, 0.08),    # FIX: matches Part 3 scale, SI→CH fully visible
     oob = scales::squish,
     name = "Setup Value"
   ) +
-  
   labs(
     title = "Pitch Sequencing Network (Setup Value)",
     subtitle = paste0(
       "Blue = improves next-pitch whiffs; Red = reduces them | ",
-      "Filters: count ≥ ", min_edge_count, ", |setup| ≥ ", min_effect
+      "Filters: count ≥ 150, |setup| ≥ ", min_effect
     )
   ) +
   coord_cartesian(clip = "off")
-
-
-print(p_net)
